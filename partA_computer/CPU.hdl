@@ -1,0 +1,61 @@
+CHIP CPU {
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current program (reset=1)
+                         // or continue executing the current program (reset=0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M?
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // Address of next instruction
+
+    PARTS:
+    // Instruction type and destination/write controls
+    Not(in=instruction[15], out=isAInst);
+    And(a=instruction[15], b=instruction[5], out=destA);
+    Or(a=isAInst, b=destA, out=loadA);
+
+    And(a=instruction[15], b=instruction[4], out=loadD);
+    And(a=instruction[15], b=instruction[3], out=writeM);
+
+    // ARegister input: instruction literal for A-inst, aluOut for C-inst
+    Mux16(a=instruction, b=aluOut, sel=instruction[15], out=aIn);
+    ARegister(in=aIn, load=loadA, out=aOut, out[0..14]=addressM);
+
+    // ALU second input: A register (a=0) or memory inM (a=1)
+    Mux16(a=aOut, b=inM, sel=instruction[12], out=amOut);
+
+    // ALU (x = D register, y = A or M)
+    ALU(
+        x=dOut,
+        y=amOut,
+        zx=instruction[11],
+        nx=instruction[10],
+        zy=instruction[9],
+        ny=instruction[8],
+        f=instruction[7],
+        no=instruction[6],
+        out=aluOut,
+        out=outM,
+        zr=zr,
+        ng=ng
+    );
+
+    // DRegister
+    DRegister(in=aluOut, load=loadD, out=dOut);
+
+    // Jump conditions for C-instructions
+    Or(a=zr, b=ng, out=leZero);
+    Not(in=leZero, out=gtZero);
+
+    And(a=instruction[2], b=ng, out=jlt);
+    And(a=instruction[1], b=zr, out=jeq);
+    And(a=instruction[0], b=gtZero, out=jgt);
+
+    Or(a=jlt, b=jeq, out=jle);
+    Or(a=jle, b=jgt, out=jumpMatch);
+    And(a=instruction[15], b=jumpMatch, out=pcLoad);
+
+    // Program Counter
+    PC(in=aOut, load=pcLoad, inc=true, reset=reset, out[0..14]=pc);
+}
